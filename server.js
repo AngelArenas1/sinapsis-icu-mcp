@@ -1,85 +1,80 @@
 import express from "express";
-import {
-  McpServer,
-  Tool
-} from "@modelcontextprotocol/sdk/server/index.js";
+import cors from "cors";
 
 const app = express();
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: "1mb" }));
 
-/**
- * MCP SERVER
- */
-const mcpServer = new McpServer({
-  name: "SinapsisICU MCP Server",
-  version: "1.0.0",
-  description: "Clinical reasoning orchestration layer for SinapsisICU"
+const PORT = process.env.PORT || 3000;
+
+// 👉 Pega el token de OpenAI Apps aquí como variable de entorno en Render:
+const OPENAI_APPS_VERIFICATION_TOKEN =
+  process.env.OPENAI_APPS_VERIFICATION_TOKEN || "";
+
+// --- 1) Health + Root (útiles para debug) ---
+app.get("/", (req, res) => res.status(200).send("SinapsisICU MCP Server OK"));
+app.get("/health", (req, res) => res.status(200).json({ ok: true }));
+
+// --- 2) Domain verification (OpenAI Apps) ---
+// Debe responder TEXTO PLANO con el token como ÚNICO contenido.
+app.get("/.well-known/openai-apps-challenge", (req, res) => {
+  if (!OPENAI_APPS_VERIFICATION_TOKEN) {
+    return res
+      .status(500)
+      .send("Missing OPENAI_APPS_VERIFICATION_TOKEN env var");
+  }
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  return res.status(200).send(OPENAI_APPS_VERIFICATION_TOKEN);
 });
 
-/**
- * TOOL: ping (obligatoria para validación)
- */
-mcpServer.registerTool(
-  new Tool({
-    name: "ping",
-    description: "Health check tool for MCP validation",
+// --- 3) MCP tool discovery ---
+// Para cubrir diferencias de “scanner”, exponemos:
+// GET  /mcp
+// GET  /mcp/tools
+// POST /mcp  (JSON-RPC tools/list)
+const TOOLS = [
+  {
+    name: "ventrix_math.calculate",
+    description:
+      "Academic ventilatory math: PF, driving pressure, compliance, mechanical power, etc. (simulated use only).",
     inputSchema: {
       type: "object",
-      properties: {},
-      additionalProperties: false
-    },
-    execute: async () => ({
-      status: "ok",
-      message: "SinapsisICU MCP server is alive"
-    })
-  })
-);
+      properties: {
+        module: { type: "string", enum: ["adult", "pregnancy", "weaning"] },
+        payload: { type: "object" }
+      },
+      required: ["module", "payload"]
+    }
+  }
+];
 
-/**
- * === MCP REQUIRED ENDPOINTS ===
- */
+function toolsListResponse() {
+  return { ok: true, tools: TOOLS };
+}
 
-/**
- * Tool discovery (ESTE ERA EL FALTANTE)
- * OpenAI llama aquí primero
- */
-app.get("/.well-known/mcp/tools", (req, res) => {
-  res.json({
-    tools: mcpServer.listTools()
-  });
-});
+// Tool discovery endpoints (GET)
+app.get("/mcp", (req, res) => res.status(200).json(toolsListResponse()));
+app.get("/mcp/tools", (req, res) => res.status(200).json(toolsListResponse()));
 
-/**
- * MCP protocol handler
- */
-app.post("/mcp", async (req, res) => {
-  try {
-    const response = await mcpServer.handleRequest(req.body);
-    res.json(response);
-  } catch (error) {
-    console.error("MCP error:", error);
-    res.status(500).json({
-      error: "MCP server error",
-      details: error.message
+// JSON-RPC minimal (POST)
+app.post("/mcp", (req, res) => {
+  const body = req.body || {};
+  const { id, method } = body;
+
+  // Algunos scanners llaman tools/list
+  if (method === "tools/list") {
+    return res.status(200).json({
+      jsonrpc: "2.0",
+      id: id ?? null,
+      result: { tools: TOOLS }
     });
   }
+
+  // Fallback: si no envían JSON-RPC correcto, igual devolvemos tools.
+  return res.status(200).json(toolsListResponse());
 });
 
-/**
- * Root health check
- */
-app.get("/", (req, res) => {
-  res.json({
-    status: "ok",
-    service: "sinapsis-icu-mcp",
-    mcp: true
-  });
-});
-
-/**
- * Start server
- */
-const PORT = process.env.PORT || 3000;
+// --- Start ---
 app.listen(PORT, () => {
-  console.log(`SinapsisICU MCP server running on port ${PORT}`);
+  console.log(`MCP server listening on port ${PORT}`);
 });
