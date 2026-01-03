@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 /**
- * MCP SERVER DEFINITION
+ * MCP SERVER
  */
 const mcpServer = new McpServer({
   name: "SinapsisICU MCP Server",
@@ -17,8 +17,7 @@ const mcpServer = new McpServer({
 });
 
 /**
- * TOOL: ping
- * Tool mínima obligatoria para que el escáner funcione
+ * TOOL: ping (obligatoria para validación)
  */
 mcpServer.registerTool(
   new Tool({
@@ -29,17 +28,29 @@ mcpServer.registerTool(
       properties: {},
       additionalProperties: false
     },
-    execute: async () => {
-      return {
-        status: "ok",
-        message: "SinapsisICU MCP server is alive"
-      };
-    }
+    execute: async () => ({
+      status: "ok",
+      message: "SinapsisICU MCP server is alive"
+    })
   })
 );
 
 /**
- * MCP ENDPOINT (OBLIGATORIO)
+ * === MCP REQUIRED ENDPOINTS ===
+ */
+
+/**
+ * Tool discovery (ESTE ERA EL FALTANTE)
+ * OpenAI llama aquí primero
+ */
+app.get("/.well-known/mcp/tools", (req, res) => {
+  res.json({
+    tools: mcpServer.listTools()
+  });
+});
+
+/**
+ * MCP protocol handler
  */
 app.post("/mcp", async (req, res) => {
   try {
@@ -55,7 +66,7 @@ app.post("/mcp", async (req, res) => {
 });
 
 /**
- * HEALTH CHECK (NO MCP, solo infraestructura)
+ * Root health check
  */
 app.get("/", (req, res) => {
   res.json({
@@ -66,7 +77,7 @@ app.get("/", (req, res) => {
 });
 
 /**
- * START SERVER
+ * Start server
  */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
