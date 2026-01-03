@@ -1,80 +1,57 @@
 import express from "express";
-import cors from "cors";
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+/**
+ * MCP tool discovery endpoint (REQUIRED)
+ */
+app.get("/mcp", (req, res) => {
+  res.json({
+    name: "SinapsisICU MCP Server",
+    description: "Clinical Reasoning Engine for ICU assistants",
+    tools: [
+      {
+        name: "ventilatory_reasoning",
+        description: "Clinical ventilatory reasoning and decision support",
+        input_schema: {
+          type: "object",
+          properties: {
+            scenario: {
+              type: "string",
+              description: "Clinical scenario description"
+            }
+          },
+          required: ["scenario"]
+        }
+      }
+    ]
+  });
+});
 
-// 👉 Pega el token de OpenAI Apps aquí como variable de entorno en Render:
-const OPENAI_APPS_VERIFICATION_TOKEN =
-  process.env.OPENAI_APPS_VERIFICATION_TOKEN || "";
+/**
+ * Tool execution endpoint
+ */
+app.post("/mcp/tools/ventilatory_reasoning", (req, res) => {
+  const { scenario } = req.body;
 
-// --- 1) Health + Root (útiles para debug) ---
-app.get("/", (req, res) => res.status(200).send("SinapsisICU MCP Server OK"));
-app.get("/health", (req, res) => res.status(200).json({ ok: true }));
+  res.json({
+    result: `Clinical reasoning generated for scenario: ${scenario}`
+  });
+});
 
-// --- 2) Domain verification (OpenAI Apps) ---
-// Debe responder TEXTO PLANO con el token como ÚNICO contenido.
+/**
+ * OpenAI domain verification
+ */
 app.get("/.well-known/openai-apps-challenge", (req, res) => {
-  if (!OPENAI_APPS_VERIFICATION_TOKEN) {
-    return res
-      .status(500)
-      .send("Missing OPENAI_APPS_VERIFICATION_TOKEN env var");
+  const token = process.env.OPENAI_APPS_VERIFICATION_TOKEN;
+  if (!token) {
+    return res.status(500).send("Missing OPENAI_APPS_VERIFICATION_TOKEN env var");
   }
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  return res.status(200).send(OPENAI_APPS_VERIFICATION_TOKEN);
+  res.type("text/plain").send(token);
 });
 
-// --- 3) MCP tool discovery ---
-// Para cubrir diferencias de “scanner”, exponemos:
-// GET  /mcp
-// GET  /mcp/tools
-// POST /mcp  (JSON-RPC tools/list)
-const TOOLS = [
-  {
-    name: "ventrix_math.calculate",
-    description:
-      "Academic ventilatory math: PF, driving pressure, compliance, mechanical power, etc. (simulated use only).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        module: { type: "string", enum: ["adult", "pregnancy", "weaning"] },
-        payload: { type: "object" }
-      },
-      required: ["module", "payload"]
-    }
-  }
-];
-
-function toolsListResponse() {
-  return { ok: true, tools: TOOLS };
-}
-
-// Tool discovery endpoints (GET)
-app.get("/mcp", (req, res) => res.status(200).json(toolsListResponse()));
-app.get("/mcp/tools", (req, res) => res.status(200).json(toolsListResponse()));
-
-// JSON-RPC minimal (POST)
-app.post("/mcp", (req, res) => {
-  const body = req.body || {};
-  const { id, method } = body;
-
-  // Algunos scanners llaman tools/list
-  if (method === "tools/list") {
-    return res.status(200).json({
-      jsonrpc: "2.0",
-      id: id ?? null,
-      result: { tools: TOOLS }
-    });
-  }
-
-  // Fallback: si no envían JSON-RPC correcto, igual devolvemos tools.
-  return res.status(200).json(toolsListResponse());
-});
-
-// --- Start ---
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`MCP server listening on port ${PORT}`);
 });
