@@ -1,31 +1,74 @@
 import express from "express";
+import {
+  McpServer,
+  Tool
+} from "@modelcontextprotocol/sdk/server/index.js";
 
 const app = express();
 app.use(express.json());
 
-app.get("/", (_req, res) => {
+/**
+ * MCP SERVER DEFINITION
+ */
+const mcpServer = new McpServer({
+  name: "SinapsisICU MCP Server",
+  version: "1.0.0",
+  description: "Clinical reasoning orchestration layer for SinapsisICU"
+});
+
+/**
+ * TOOL: ping
+ * Tool mínima obligatoria para que el escáner funcione
+ */
+mcpServer.registerTool(
+  new Tool({
+    name: "ping",
+    description: "Health check tool for MCP validation",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false
+    },
+    execute: async () => {
+      return {
+        status: "ok",
+        message: "SinapsisICU MCP server is alive"
+      };
+    }
+  })
+);
+
+/**
+ * MCP ENDPOINT (OBLIGATORIO)
+ */
+app.post("/mcp", async (req, res) => {
+  try {
+    const response = await mcpServer.handleRequest(req.body);
+    res.json(response);
+  } catch (error) {
+    console.error("MCP error:", error);
+    res.status(500).json({
+      error: "MCP server error",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * HEALTH CHECK (NO MCP, solo infraestructura)
+ */
+app.get("/", (req, res) => {
   res.json({
-    name: "Sinapsis ICU MCP",
-    version: "0.1.0",
-    description: "Clinical Reasoning MCP for Sinapsis ICU",
-    tools: [
-      {
-        name: "health_check",
-        description: "Check MCP availability",
-        input_schema: {
-          type: "object",
-          properties: {}
-        }
-      }
-    ]
+    status: "ok",
+    service: "sinapsis-icu-mcp",
+    mcp: true
   });
 });
 
-app.post("/tools/health_check", (_req, res) => {
-  res.json({ status: "ok" });
+/**
+ * START SERVER
+ */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`SinapsisICU MCP server running on port ${PORT}`);
 });
-
-const port = process.env.PORT || 3000;
-app.listen(port, () =>
-  console.log(`MCP running on port ${port}`)
-);
